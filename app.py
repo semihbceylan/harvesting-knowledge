@@ -5,9 +5,31 @@ import requests
 from datetime import datetime
 from PIL import Image
 import streamlit as st
+from ultralytics import YOLO
 
+YOLO_MODEL_PATH = r"C:\Users\PC\Desktop\semihbc\best.pt"
+yolo_model = YOLO(YOLO_MODEL_PATH)
 OLLAMA_HOST = "http://localhost:11434"
 MODEL = "llama3.2:3b"
+
+def verify_zoom_with_yolo(image_path: str, expected_zoom: str) -> dict:
+    """
+    Uses YOLO to verify whether the image is 1x or 10x.
+    expected_zoom should be '1x' or '10x'
+    """
+    try:
+        # Predict with YOLO
+        results = yolo_model(image_path)
+        predicted_class = results[0].names[results[0].probs.top1].lower()
+
+        # Compare
+        is_correct = predicted_class == expected_zoom.lower()
+        return {
+            "predicted_zoom": predicted_class,
+            "matches_expected": is_correct
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 # Tool function to resolve image path from folder based on input
 def get_field_image_path(date: str, lens: str, zoom: str) -> dict:
@@ -95,6 +117,19 @@ if st.button("Find Image"):
         result = chat_with_tools(user_input)
         if "path" in result:
             st.success(f"Image found: {result['path']}")
-            st.image(result["path"], caption=os.path.basename(result["path"]), use_column_width=True)
+            st.image(result["path"], caption=os.path.basename(result["path"]), use_container_width=True)
+
+            # Extract expected zoom from user_input or result — assuming you have access to zoom
+            expected_zoom = "10x" if "10x" in user_input.lower() else "1x"
+
+            # Run YOLO verification
+            verification = verify_zoom_with_yolo(result["path"], expected_zoom)
+            if "error" in verification:
+                st.warning(f"YOLO verification failed: {verification['error']}")
+            else:
+                if verification["matches_expected"]:
+                    st.success(f"✅ Verified by YOLO: Zoom level is {verification['predicted_zoom']}")
+                else:
+                    st.error(f"❌ Mismatch: YOLO predicted {verification['predicted_zoom']}, but expected {expected_zoom}")
         else:
             st.error(result.get("error", "Unknown error occurred."))
